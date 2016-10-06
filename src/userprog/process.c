@@ -106,19 +106,19 @@ start_process (void *file_name_)
   char *token, *save_ptr, *save_ptr2;
   struct intr_frame if_;
   bool success;
-  char **parse=(char**)malloc(sizeof(char*)*100);
+  char *parse[LOADER_ARGS_LEN / 2 + 1];
   int i;
   int count=0;
 
   strlcpy (fn_copy, file_name, PGSIZE);
   // malloc
-  for (i=0;i<100;++i)	parse[i] = (char*)malloc(sizeof(char)*100);
+  //for (i=0;i<100;++i)	parse[i] = (char*)malloc(sizeof(char)*100);
   
   i=0;
   /* Get token */
   for (token = strtok_r(fn_copy, " ", &save_ptr); token != NULL; token = strtok_r(NULL, " ", &save_ptr))
   {
-  	strlcpy(parse[i], token, strlen(token)+1);
+  	parse[i] = token;
 	++i;
   }
   // Get file name
@@ -137,11 +137,11 @@ start_process (void *file_name_)
   {
   	thread_current()->load = success;
   	sema_up (&(thread_current()->sema_load));
-	for (i=0;i<100;++i)
+	/*for (i=0;i<100;++i)
 	{
 		free(parse[i]);
 	}
-	free(parse);
+	free(parse);*/
     thread_exit ();
   }
   thread_current()->load = success;

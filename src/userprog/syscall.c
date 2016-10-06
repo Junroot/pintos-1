@@ -58,11 +58,23 @@ int
 open(const char *file)
 {
 	struct file *f;
-	if (file == NULL) return -1;
+	int ret;
+	if (file == NULL)
+	{
+		lock_release(&filesys_lock);
+		return -1;
+	}
+	lock_acquire(&filesys_lock);
 	f = filesys_open(file);
-	if (f == NULL) return -1;
+	if (f == NULL)
+	{	
+		lock_release(&filesys_lock);
+		return -1;
+	}
+	ret = process_add_file(f);
+	lock_release(&filesys_lock);
 
-	return process_add_file(f);
+	return ret;
 }
 
 int
@@ -187,7 +199,7 @@ syscall_handler (struct intr_frame *f UNUSED)
 {
   int *esp = f->esp;
   int ret;
-  int* arg = (int*)malloc(sizeof(int)*100);
+  int arg[4];
   check_address(esp);
   switch(*esp)
   {
@@ -250,5 +262,5 @@ syscall_handler (struct intr_frame *f UNUSED)
 		break;	
   }
   f->eax = ret;
-  free(arg);
+  //free(arg);
 }
