@@ -31,8 +31,8 @@ tid_t
 process_execute (const char *file_name) 
 {
   char *fn_copy;
-  char cmd[100];
-  char *token, *save_ptr;
+  char *fn_copy2; // file name copy
+  char *token, *save_ptr; // to get first token
   tid_t tid;
 
   /* Make a copy of FILE_NAME.
@@ -42,15 +42,17 @@ process_execute (const char *file_name)
     return TID_ERROR;
   strlcpy (fn_copy, file_name, PGSIZE);
 
-  strlcpy (cmd, file_name, PGSIZE);
+  fn_copy2 = palloc_get_page (0);
+  strlcpy (fn_copy2, file_name, PGSIZE); //copy file name
 
   /* Get the first token */
-  token = strtok_r(cmd, " ", &save_ptr);
+  token = strtok_r(fn_copy2, " ", &save_ptr);
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (cmd, PRI_DEFAULT, start_process, fn_copy);
+  tid = thread_create (token, PRI_DEFAULT, start_process, fn_copy);
 
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy); 
+  palloc_free_page (fn_copy2); 
   return tid;
 }
 
@@ -102,46 +104,31 @@ static void
 start_process (void *file_name_)
 {
   char *file_name = file_name_;
-  char fn_copy[100];
-  char *token, *save_ptr, *save_ptr2;
+  char *token, *save_ptr;
   struct intr_frame if_;
   bool success;
-  char *parse[LOADER_ARGS_LEN / 2 + 1];
-  int i;
+  char *parse[LOADER_ARGS_LEN / 2 + 1]; //arguments
   int count=0;
-
-  strlcpy (fn_copy, file_name, PGSIZE);
-  // malloc
-  //for (i=0;i<100;++i)	parse[i] = (char*)malloc(sizeof(char)*100);
   
-  i=0;
   /* Get token */
-  for (token = strtok_r(fn_copy, " ", &save_ptr); token != NULL; token = strtok_r(NULL, " ", &save_ptr))
+  for (token = strtok_r(file_name, " ", &save_ptr); token != NULL; token = strtok_r(NULL, " ", &save_ptr))
   {
-  	parse[i] = token;
-	++i;
+  	parse[count] = token;
+	++count;
   }
-  // Get file name
-  file_name = strtok_r(file_name, " ", &save_ptr2);
-  count = i;
+
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
   success = load (file_name, &if_.eip, &if_.esp);
-
+	
   /* If load failed, quit. */
-  palloc_free_page (file_name);
   if (!success) 
   {
-  	thread_current()->load = success;
+  	thread_current()->load = false;
   	sema_up (&(thread_current()->sema_load));
-	/*for (i=0;i<100;++i)
-	{
-		free(parse[i]);
-	}
-	free(parse);*/
     thread_exit ();
   }
   thread_current()->load = success;
@@ -152,18 +139,16 @@ start_process (void *file_name_)
      arguments on the stack in the form of a `struct intr_frame',
      we just point the stack pointer (%esp) to our stack frame
      and jump to it. */
+  // Save tokens in stack
   argument_stack(parse, count, &if_.esp);
   //hex_dump(if_.esp, if_.esp, PHYS_BASE - if_.esp, true);
 
+  palloc_free_page (file_name);
   asm volatile ("movl %0, %%esp; jmp intr_exit" : : "g" (&if_) : "memory");
-  for (i=0;i<100;++i)
-  {
-    free(parse[i]);
-  }
-  free(parse);
   NOT_REACHED ();
 }
 
+// return thread by thread id
 struct 
 thread *get_child_process (int pid)
 {
@@ -178,6 +163,8 @@ thread *get_child_process (int pid)
 	return NULL;
 }
 
+
+// remove child process
 void remove_child_process(struct thread *cp)
 {	
 	list_remove(&(cp->child_elem));
@@ -199,6 +186,7 @@ process_wait (tid_t child_tid UNUSED)
   int status;
   struct thread *t = get_child_process(child_tid);
   if (t == NULL)	return -1;
+  // Wait for exiting child process
   sema_down(&(t->sema_exit));
   status = t->exit_status;
   remove_child_process(t);

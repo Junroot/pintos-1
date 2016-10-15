@@ -13,5 +13,7 @@ unsigned tell (int fd);
 void close(int fd);
 void halt();
 void exit(int status);
+void check_address (void *addr);
+void get_argument (void *esp, int *arg, int count);
 
 #endif /* userprog/syscall.h */

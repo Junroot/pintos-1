@@ -205,15 +205,17 @@ thread_create (const char *name, int priority,
   sf->ebp = 0;
 
   intr_set_level (old_level);
-
+  //Save parent thread
   t->parent = thread_current();
+
   t->load = false;
   t->exit = false;
-
+  //sema init
   sema_init(&t->sema_load, 0);
   sema_init(&t->sema_exit, 0);
+  //add to child list
   list_push_back(&thread_current()->child_list, &t -> child_elem);
-
+  //file descriptor init
   t->next_fd = 2;
   t->fdt = palloc_get_page(0);
 
@@ -473,7 +475,6 @@ is_thread (struct thread *t)
 static void
 init_thread (struct thread *t, const char *name, int priority)
 {
-  struct list_elem *e;
 
   ASSERT (t != NULL);
   ASSERT (PRI_MIN <= priority && priority <= PRI_MAX);
@@ -486,12 +487,8 @@ init_thread (struct thread *t, const char *name, int priority)
   t->priority = priority;
   t->magic = THREAD_MAGIC;
   list_push_back (&all_list, &t->allelem);
-
+  //initializing child list
   list_init(&(t->child_list));
-  for (e = list_begin(&(t->child_list)); e != list_end(&(t->child_list)); e = list_next(e))
-  {
-  	list_entry(e, struct thread, child_elem);
-  }
 }
 
 /* Allocates a SIZE-byte frame at the top of thread T's stack and

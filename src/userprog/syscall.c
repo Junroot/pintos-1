@@ -9,6 +9,10 @@
 #include "filesys/filesys.h"
 
 static void syscall_handler (struct intr_frame *);
+bool create (const char *file, unsigned initial_size);
+bool remove (const char *file);
+tid_t exec (const char *cmd_line);
+int wait(tid_t tid);
 
 void 
 halt()
@@ -43,6 +47,7 @@ remove (const char *file)
 tid_t exec (const char *cmd_line)
 {
 	struct thread *t = get_child_process(process_execute(cmd_line));
+	//wait for loading child process
 	sema_down(&(t->sema_load));
 	if (t->load) return t->tid;
 	else return -1;
@@ -163,9 +168,10 @@ tell (int fd)
 
 void close (int fd)
 {
-	struct file *f = process_close_file(fd);
+	process_close_file(fd);
 }
 
+//Check addr is user area
 void 
 check_address (void *addr)
 {
@@ -198,55 +204,54 @@ static void
 syscall_handler (struct intr_frame *f UNUSED) 
 {
   int *esp = f->esp;
-  int ret;
   int arg[4];
-  check_address(esp);
+  check_address(esp);// esp check
   switch(*esp)
   {
 	case SYS_HALT:
 		halt();
 		break;
     case SYS_EXIT:
-		get_argument(esp,arg,1);
+		get_argument(esp,arg,1);// If argument is pointer, check address
 		exit((int)arg[0]);
 		break;
 	case SYS_CREATE:
 		get_argument(esp,arg,2);
-		check_address(arg[0]);
-		ret=create((const char *)arg[0],(unsigned)arg[1]);
+		check_address((void*)arg[0]);
+		f->eax = create((const char *)arg[0],(unsigned)arg[1]);
 		break;
 	case SYS_REMOVE:
 		get_argument(esp,arg,1);
-		check_address(arg[0]);
-		ret=remove((const char *)arg[0]);
+		check_address((void*)arg[0]);
+		f->eax = remove((const char *)arg[0]);
 		break;
     case SYS_EXEC:
 		get_argument(esp,arg,1);
-		check_address(arg[0]);
-		ret=exec((const char *)arg[0]);
+		check_address((void*)arg[0]);
+		f->eax = exec((const char *)arg[0]);
 		break;
 	case SYS_WAIT:
 		get_argument(esp,arg,1);
-		ret=wait((tid_t)arg[0]);
+		f->eax = wait((tid_t)arg[0]);
 		break;
     case SYS_OPEN:
 		get_argument(esp,arg,1);
-		check_address(arg[0]);
-		ret=open((const char *)arg[0]);
+		check_address((void*)arg[0]);
+		f->eax = open((const char *)arg[0]);
 		break;
 	case SYS_FILESIZE:
 		get_argument(esp,arg,1);
-		ret=filesize((int)arg[0]);
+		f->eax = filesize((int)arg[0]);
 		break;
 	case SYS_READ:
 		get_argument(esp,arg,3);
-		check_address(arg[1]);
-		ret=read((int)arg[0],(void *)arg[1],(unsigned)arg[2]);
+		check_address((void*)arg[1]);
+		f->eax = read((int)arg[0],(void *)arg[1],(unsigned)arg[2]);
 		break;
 	case SYS_WRITE:
 		get_argument(esp,arg,3);
-		check_address(arg[1]);
-		ret=write((int)arg[0],(void *)arg[1],(unsigned)arg[2]);
+		check_address((void*)arg[1]);
+		f->eax = write((int)arg[0],(void *)arg[1],(unsigned)arg[2]);
 		break;
 	case SYS_SEEK:
 		get_argument(esp,arg,2);
@@ -254,13 +259,11 @@ syscall_handler (struct intr_frame *f UNUSED)
 		break;
 	case SYS_TELL:
 		get_argument(esp,arg,1);
-		ret=tell((int)arg[0]);
+		f->eax = tell((int)arg[0]);
 		break;
 	case SYS_CLOSE:
 		get_argument(esp,arg,1);
 		close((int)arg[0]);
 		break;	
   }
-  f->eax = ret;
-  //free(arg);
 }

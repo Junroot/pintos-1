@@ -96,17 +96,19 @@ struct thread
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
-    uint32_t *pagedir;                  /* Page directory. */
-    struct thread *parent;
-    struct list_elem child_elem;
-    struct list child_list;
+    uint32_t *pagedir;                  /* Page directory.  */
+    struct thread *parent;				/* parent thread    */
+    struct list_elem child_elem;        /* child list elem  */
+    struct list child_list;				/* child list		*/	
 
     bool load;
     bool exit;
+	// semaphore
     struct semaphore sema_exit;
     struct semaphore sema_load;
+	// exit status
     int exit_status;
-    struct file ** fdt;
+    struct file ** fdt;  //file descriptor table
     int next_fd;
     struct file *run_file;
 #endif
