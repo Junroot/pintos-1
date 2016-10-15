@@ -92,11 +92,8 @@ struct thread
     struct list_elem allelem;           /* List element for all threads list. */
 
     /* Shared between thread.c and synch.c. */
-    struct list_elem elem;              /* List element. */
-
-#ifdef USERPROG
-    /* Owned by userprog/process.c. */
-    uint32_t *pagedir;                  /* Page directory.  */
+    struct list_elem elem;              /* List element. */	
+	int64_t wakeup_tick;  // Save tick to wake
     struct thread *parent;				/* parent thread    */
     struct list_elem child_elem;        /* child list elem  */
     struct list child_list;				/* child list		*/	
@@ -111,8 +108,10 @@ struct thread
     struct file ** fdt;  //file descriptor table
     int next_fd;
     struct file *run_file;
+#ifdef USERPROG
+    /* Owned by userprog/process.c. */
+    uint32_t *pagedir;                  /* Page directory.  */
 #endif
-
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
   };
@@ -152,5 +151,10 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+
+void thread_sleep (int64_t ticks);
+void thread_awake (int64_t ticks);
+void update_next_tick_to_awake (int64_t ticks);
+int64_t get_next_tick_to_awake (void);
 
 #endif /* threads/thread.h */

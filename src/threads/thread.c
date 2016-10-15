@@ -24,6 +24,12 @@
    that are ready to run but not actually running. */
 static struct list ready_list;
 
+// List of precesses in  THREAD_BLOCK state
+static struct list sleep_list;
+
+// Save the minimum of wakeup_tick in THREAD_BLOCK process
+int64_t next_tick_to_awake = INT64_MAX;
+
 /* List of all processes.  Processes are added to this list
    when they are first scheduled and removed when they exit. */
 static struct list all_list;
@@ -92,6 +98,7 @@ thread_init (void)
   lock_init (&tid_lock);
   list_init (&ready_list);
   list_init (&all_list);
+  list_init (&sleep_list);
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
@@ -318,6 +325,54 @@ thread_exit (void)
   thread_current ()->status = THREAD_DYING;
   schedule ();
   NOT_REACHED ();
+}
+
+void update_next_tick_to_awake (int64_t ticks)
+{
+	if (ticks < next_tick_to_awake)	next_tick_to_awake = ticks;
+}
+
+int64_t get_next_tick_to_awake(void)
+{
+	return next_tick_to_awake;
+}
+
+// make running thread to sleep
+void thread_sleep (int64_t ticks)
+{
+	struct thread *cur = thread_current();
+	enum intr_level old_level;
+
+	if (cur != idle_thread)
+	{
+		old_level = intr_disable();
+		cur->status = THREAD_BLOCKED;
+		cur->wakeup_tick = ticks;
+		list_push_back(&sleep_list,&cur->elem);
+		update_next_tick_to_awake(ticks);
+		schedule();
+		intr_set_level (old_level);
+	}
+}
+
+void thread_awake(int64_t ticks)
+{
+	struct list_elem *e;
+	struct thread *t;
+	for (e = list_begin(&sleep_list); e != list_end(&sleep_list);)
+	{
+		t = list_entry(e, struct thread, elem);
+		if (t->wakeup_tick <= ticks)
+		{
+			e = list_remove(&t->elem);
+			thread_unblock(t);
+		}
+		else
+		{
+			update_next_tick_to_awake(t->wakeup_tick);
+			e = list_next(e);
+		}
+	}
 }
 
 /* Yields the CPU.  The current thread is not put to sleep and
