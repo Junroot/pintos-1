@@ -4,6 +4,7 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include <hash.h>
 #include "threads/synch.h"
 
 /* States in a thread's life cycle. */
@@ -108,12 +109,16 @@ struct thread
     struct file ** fdt;  //file descriptor table
     int next_fd;
     struct file *run_file;
+
+	int nice;
+	int recent_cpu;
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory.  */
 #endif
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
+	struct hash vm;
   };
 
 /* If false (default), use round-robin scheduler.
@@ -156,5 +161,14 @@ void thread_sleep (int64_t ticks);
 void thread_awake (int64_t ticks);
 void update_next_tick_to_awake (int64_t ticks);
 int64_t get_next_tick_to_awake (void);
+
+void test_max_priority(void);
+bool cmp_priority (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED);
+
+void mlfqs_priority (struct thread *t);
+void mlfqs_recent_cpu (struct thread *t);
+void mlfqs_load_avg (void);
+void mlfqs_increment (void);
+void mlfqs_recalc (void);
 
 #endif /* threads/thread.h */
