@@ -234,6 +234,8 @@ thread_create (const char *name, int priority,
   t->next_fd = 2;
   t->fdt = palloc_get_page(0);
 
+  t->next_mapid = 1;
+
   /* Add to run queue. */
   thread_unblock (t);
 

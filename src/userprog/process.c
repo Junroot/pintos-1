@@ -119,6 +119,7 @@ start_process (void *file_name_)
   }
 
   vm_init(&thread_current()->vm);
+  list_init(&thread_current()->mmap_list);
 
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
@@ -210,11 +211,14 @@ process_exit (void)
   	process_close_file(i);
   }
   
+  munmap(-1);
+
   palloc_free_page(cur->fdt);
+  file_close(cur->run_file);
+
   vm_destroy(&cur->vm);
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
-  file_close(cur->run_file);
   pd = cur->pagedir;
   if (pd != NULL) 
     {
@@ -641,6 +645,7 @@ bool handle_mm_fault(struct vm_entry *vme)
 	switch(vme->type)
 	{
 		case VM_BIN :
+		case VM_FILE :
 			load = load_file(addr, vme);
 			vme->is_loaded = install_page(vme->vaddr, addr, vme->writable);
 			break;
@@ -648,7 +653,8 @@ bool handle_mm_fault(struct vm_entry *vme)
 			return false;
 	}
 
-	if(!load) return false;
+	if(!load)	return false;
+
 	if(!vme->is_loaded)	palloc_free_page(addr);
 
 	return vme->is_loaded;

@@ -98,6 +98,7 @@ struct thread
     struct thread *parent;				/* parent thread    */
     struct list_elem child_elem;        /* child list elem  */
     struct list child_list;				/* child list		*/	
+	struct list mmap_list;
 
     bool load;
     bool exit;
@@ -109,6 +110,8 @@ struct thread
     struct file ** fdt;  //file descriptor table
     int next_fd;
     struct file *run_file;
+
+	int next_mapid;
 
 	int nice;
 	int recent_cpu;
