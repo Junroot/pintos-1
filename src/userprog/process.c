@@ -20,6 +20,8 @@
 #include "threads/vaddr.h"
 #include "threads/malloc.h"
 #include "vm/page.h"
+#include "vm/swap.h"
+#include "vm/frame.h"
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
@@ -111,6 +113,9 @@ start_process (void *file_name_)
   char *parse[LOADER_ARGS_LEN / 2 + 1]; //arguments
   int count=0;
   
+  vm_init(&thread_current()->vm);
+  list_init(&thread_current()->mmap_list);
+
   /* Get token */
   for (token = strtok_r(file_name, " ", &save_ptr); token != NULL; token = strtok_r(NULL, " ", &save_ptr))
   {
@@ -118,8 +123,6 @@ start_process (void *file_name_)
 	++count;
   }
 
-  vm_init(&thread_current()->vm);
-  list_init(&thread_current()->mmap_list);
 
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
@@ -133,9 +136,10 @@ start_process (void *file_name_)
   {
   	thread_current()->load = false;
   	sema_up (&(thread_current()->sema_load));
+	palloc_free_page(file_name);
     thread_exit ();
   }
-  thread_current()->load = success;
+  thread_current()->load = true;
   sema_up (&(thread_current()->sema_load)); 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
@@ -202,21 +206,33 @@ void
 process_exit (void)
 {
   struct thread *cur = thread_current ();
+  struct list_elem *e, *tmp;
+  struct page *p;
   uint32_t *pd;
   int i;
 
-  /* FIle close */
-  for (i=cur->next_fd-1; i>1; --i)
-  {
-  	process_close_file(i);
-  }
-  
+
   munmap(-1);
 
-  palloc_free_page(cur->fdt);
-  file_close(cur->run_file);
+  for(e = list_begin(&lru_list); e != list_end(&lru_list);)
+  {
+  	tmp = list_next(e);
+	p = list_entry(e, struct page, lru);
+	if(p->thread->tid == cur->tid)
+	{
+		del_page_from_lru_list(p);
+	}
+	e= tmp;
+  }
+	/* FIle close */
+  for (i=cur->next_fd-1; i>1; --i)
+  {
+	  	process_close_file(i);
+  }
 
+  palloc_free_page(cur->fdt);
   vm_destroy(&cur->vm);
+  file_close(cur->run_file);
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
   pd = cur->pagedir;
@@ -233,6 +249,7 @@ process_exit (void)
       pagedir_activate (NULL);
       pagedir_destroy (pd);
     }
+
 }
 
 int
@@ -545,12 +562,14 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
 	  struct vm_entry* vme = (struct vm_entry*)malloc(sizeof(struct vm_entry));
+	  
 	  vme->type = VM_BIN;
 	  vme->file = file;
 	  vme->offset = ofs;
 	  vme->read_bytes = page_read_bytes;
 	  vme->zero_bytes = page_zero_bytes;
 	  vme->writable = writable;
+	  vme->is_loaded = false;
 	  vme->vaddr = upage;
 
 	  insert_vme(&thread_current()->vm, vme);
@@ -589,27 +608,34 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 static bool
 setup_stack (void **esp) 
 {
-  uint8_t *kpage;
+  struct page *kpage;
   bool success = false;
+  struct vm_entry *vme = (struct vm_entry*)malloc(sizeof(struct vm_entry));
+  if(vme == NULL)
+  {
+ 	 return false;
+  }
+  kpage = alloc_page(PAL_USER | PAL_ZERO);
 
-  kpage = palloc_get_page (PAL_USER | PAL_ZERO);
   if (kpage != NULL) 
     {
-      success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
+      success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage->kaddr, true);
       if (success)
 	  {
         *esp = PHYS_BASE;
-  		struct vm_entry *vme = (struct vm_entry*)malloc(sizeof(struct vm_entry));
-		vme->type = VM_BIN;
+		memset (vme,0,sizeof(struct vm_entry));
+		vme->type = VM_ANON;
 		vme->vaddr = ((uint8_t *) PHYS_BASE) - PGSIZE;
 		vme->writable = true;
 		vme->is_loaded = true;
 
 		insert_vme(&thread_current()->vm, vme);
+	    kpage->vme = vme;
  	  }
       else
 	  {
-        palloc_free_page (kpage);
+        free_page (kpage->kaddr);
+		return false;
 	  }
     }
   return success;
@@ -637,25 +663,40 @@ install_page (void *upage, void *kpage, bool writable)
 
 bool handle_mm_fault(struct vm_entry *vme)
 {
-	void *addr = palloc_get_page(PAL_USER);
-	bool load;
+	struct page *page = alloc_page(PAL_USER);
+	void *addr = page->kaddr;
+	bool success = false;
 
-	if(addr == NULL)	return false;
+	page->vme = vme;
+	if(addr == NULL) return false;
 
 	switch(vme->type)
 	{
 		case VM_BIN :
 		case VM_FILE :
-			load = load_file(addr, vme);
-			vme->is_loaded = install_page(vme->vaddr, addr, vme->writable);
+			success = load_file(addr, vme);
+			break;
+		case VM_ANON :
+			swap_in(vme->swap_slot, addr);
+			success = true;
 			break;
 		default :
 			return false;
 	}
 
-	if(!load)	return false;
+	if(!success)
+	{
+		free_page(addr);
+		return false;
+	}
 
-	if(!vme->is_loaded)	palloc_free_page(addr);
+	if(!install_page(vme->vaddr, addr, vme->writable))
+	{
+		free_page(addr);
+		return false;
+	}
 
-	return vme->is_loaded;
+	vme->is_loaded = true;
+
+	return true;
 }

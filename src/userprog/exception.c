@@ -153,7 +153,7 @@ page_fault (struct intr_frame *f)
   if (!not_present)	exit(-1);
   struct vm_entry *vme = find_vme(fault_addr);
   if (vme == NULL)	exit(-1);
-  if (!handle_mm_fault(vme))	exit(-1);
+  if (!handle_mm_fault(vme))	exit(-1);	
 
 
   //exit(-1);

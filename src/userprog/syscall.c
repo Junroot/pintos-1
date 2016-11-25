@@ -8,6 +8,8 @@
 #include "devices/shutdown.h"
 #include "filesys/filesys.h"
 #include "vm/page.h"
+#include "vm/frame.h"
+#include "vm/swap.h"
 
 static void syscall_handler (struct intr_frame *);
 bool create (const char *file, unsigned initial_size);
@@ -67,7 +69,6 @@ open(const char *file)
 	int ret;
 	if (file == NULL)
 	{
-		lock_release(&filesys_lock);
 		return -1;
 	}
 	lock_acquire(&filesys_lock);
@@ -183,7 +184,6 @@ int mmap(int fd, void *addr)
 	if (is_user_vaddr (addr) == false) return -1;
 	mf = (struct mmap_file *)malloc(sizeof(struct mmap_file));
 	if (mf == NULL)	return -1;
-	if (mf == NULL)	return -1;
 
 	memset (mf, 0, sizeof(struct mmap_file));
 	list_init(&mf->vme_list);
@@ -192,21 +192,18 @@ int mmap(int fd, void *addr)
 	read_byte = file_length(mf->file);
 	list_push_back(&thread_current()->mmap_list, &mf->elem);
 
-	if (read_byte == 0)	return -1;
-
 	while (read_byte > 0)
 	{
 		if(find_vme(addr))	return -1;
 
 		struct vm_entry *vme = (struct vm_entry *)malloc(sizeof(struct vm_entry));
-		memset (vme, 0, sizeof(struct vm_entry));
 		vme->type = VM_FILE;
 		vme->vaddr = addr;
 		vme->writable = true;
 		vme->file = mf->file;
 		vme->offset = offset;
 		vme->read_bytes =  read_byte < PGSIZE ? read_byte : PGSIZE;
-		vme->zero_bytes = 0;
+		vme->zero_bytes = PGSIZE - vme->read_bytes;
 		vme->is_loaded = false;
 		
 		insert_vme(&thread_current()->vm, vme);
@@ -260,11 +257,16 @@ void do_munmap(struct mmap_file *mmap_file)
 	for (e = list_begin(&mmap_file->vme_list); e != list_end(&mmap_file->vme_list);)
 	{
 		struct vm_entry *vme = list_entry(e, struct vm_entry, mmap_elem);
-		if (vme->is_loaded && pagedir_is_dirty(cur->pagedir, vme->vaddr))
+		if(vme->is_loaded)
 		{
-			lock_acquire(&filesys_lock);
-			file_write_at(vme->file,vme->vaddr,vme->read_bytes,vme->offset);
-			lock_release(&filesys_lock);
+			if (pagedir_is_dirty(cur->pagedir, vme->vaddr))
+			{
+				lock_acquire(&filesys_lock);
+				file_write_at(vme->file,vme->vaddr,vme->read_bytes,vme->offset);
+				lock_release(&filesys_lock);
+			}
+			free_page(pagedir_get_page(cur->pagedir, vme->vaddr));
+			pagedir_clear_page(cur->pagedir, vme->vaddr);
 		}
 		e = list_remove(e);
 		delete_vme (&cur->vm, vme);
@@ -281,9 +283,13 @@ void check_valid_buffer (void *buffer, unsigned size, void *esp, bool to_write)
 	for (i = 0; i < size; i++)
 	{
 		vme = check_address(temp,esp);
-		if (vme != NULL && to_write == true)
+		if (vme == NULL)	exit(-1);
+		if (to_write == true)
 		{
-			if (vme->writable == false) exit(-1);
+			if (vme->writable == false)
+			{
+				exit(-1);
+			}
 		}
 		temp++;
 	}
