@@ -11,7 +11,7 @@
 /* Identifies an inode. */
 #define INODE_MAGIC 0x494e4f44
 
-#define DIRECT_BLOCK_ENTRIES 123
+#define DIRECT_BLOCK_ENTRIES 124
 #define INDIRECT_BLOCK_ENTRIES 128
 
 enum direct_t
@@ -40,7 +40,6 @@ struct inode_disk
   {
     off_t length;                       /* File size in bytes. */
     unsigned magic;                     /* Magic number. */
-	uint32_t is_dir;
     block_sector_t direct_map_table[DIRECT_BLOCK_ENTRIES];
 	block_sector_t indirect_block_sec;
 	block_sector_t double_indirect_block_sec;
@@ -91,7 +90,7 @@ inode_init (void)
    Returns true if successful.
    Returns false if memory or disk allocation fails. */
 bool
-inode_create (block_sector_t sector, off_t length, uint32_t is_dir)
+inode_create (block_sector_t sector, off_t length)
 {
   struct inode_disk *disk_inode = NULL;
   bool success = false;
@@ -105,7 +104,6 @@ inode_create (block_sector_t sector, off_t length, uint32_t is_dir)
   disk_inode = calloc (1, sizeof *disk_inode);
   if (disk_inode != NULL)
     {
-	  memset(disk_inode, 0xFF, sizeof(*disk_inode));
      // size_t sectors = bytes_to_sectors (length);
       disk_inode->length = length;
       disk_inode->magic = INODE_MAGIC;
@@ -122,7 +120,6 @@ inode_create (block_sector_t sector, off_t length, uint32_t is_dir)
             }
           success = true; 
         } */
-	  disk_inode->is_dir = is_dir;
 	  if (length > 0)
 	  {
 	  		inode_update_file_length(disk_inode, 0, length - 1);
@@ -431,7 +428,7 @@ static void locate_byte (off_t pos, struct sector_location *sec_loc)
 	}
 	else if (pos_sector < DIRECT_BLOCK_ENTRIES + INDIRECT_BLOCK_ENTRIES + INDIRECT_BLOCK_ENTRIES * INDIRECT_BLOCK_ENTRIES)
 	{
-		pos_sector -= (DIRECT_BLOCK_ENTRIES + INDIRECT_BLOCK_ENTRIES);
+		pos_sector -= DIRECT_BLOCK_ENTRIES + INDIRECT_BLOCK_ENTRIES;
 		sec_loc->directness = DOUBLE_INDIRECT;
 		sec_loc->index1 = pos_sector / INDIRECT_BLOCK_ENTRIES;
 		sec_loc->index2 = pos_sector % INDIRECT_BLOCK_ENTRIES;
@@ -452,27 +449,27 @@ static bool register_sector (struct inode_disk *inode_disk, block_sector_t new_s
 			inode_disk->direct_map_table[sec_loc.index1] = new_sector;
 			break;
 		case INDIRECT:
-			if(inode_disk->indirect_block_sec == -1)
+			if(inode_disk->indirect_block_sec == 0)
 			{
 				if(!free_map_allocate(1, &inode_disk->indirect_block_sec))	return false;
-				memset(&first_block, 0xFF, sizeof(struct inode_indirect_block));
+				memset(&first_block, 0, sizeof(struct inode_indirect_block));
 			}
 			bc_read(inode_disk->indirect_block_sec, &first_block, 0, sizeof(struct inode_indirect_block), 0);
 			first_block.map_table[sec_loc.index1] = new_sector;
 			bc_write(inode_disk->indirect_block_sec, &first_block, 0, sizeof(struct inode_indirect_block), 0);
 			break;
 		case DOUBLE_INDIRECT:
-			if(inode_disk->double_indirect_block_sec == -1)
+			if(inode_disk->double_indirect_block_sec == 0)
 			{
 				if(!free_map_allocate(1, &inode_disk->double_indirect_block_sec)) return false;
-				memset(&first_block, 0xFF, sizeof(struct inode_indirect_block));
+				memset(&first_block, 0, sizeof(struct inode_indirect_block));
 			}
 			bc_read(inode_disk->double_indirect_block_sec, &first_block, 0, sizeof(struct inode_indirect_block), 0);
-			if(first_block.map_table[sec_loc.index1] == -1)
+			if(first_block.map_table[sec_loc.index1] == 0)
 			{
 				if(!free_map_allocate(1, &first_block.map_table[sec_loc.index1])) return false;
 				bc_write(inode_disk->double_indirect_block_sec, &first_block, 0, sizeof(struct inode_indirect_block), 0);
-				memset(&second_block, 0xFF, sizeof(struct inode_indirect_block));
+				memset(&second_block, 0, sizeof(struct inode_indirect_block));
 			}
 			bc_read(first_block.map_table[sec_loc.index1], &second_block, 0, sizeof(struct inode_indirect_block), 0);
 			second_block.map_table[sec_loc.index2] = new_sector;
@@ -551,43 +548,35 @@ static void free_inode_sectors(struct inode_disk *inode_disk)
 	struct inode_indirect_block first_block, second_block; 
 	for(i = 0; i < DIRECT_BLOCK_ENTRIES; i++)
 	{
-		if (inode_disk->direct_map_table[i] == -1)	break;
+		if (inode_disk->direct_map_table[i] == 0)	break;
 		free_map_release(inode_disk->direct_map_table[i], 1);
 	}
 	
-	if (inode_disk->indirect_block_sec != -1)
+	if (inode_disk->indirect_block_sec > 0)
 	{
 		bc_read (inode_disk->indirect_block_sec, &first_block, 0, sizeof(struct inode_indirect_block), 0);
 		for(i = 0; i < INDIRECT_BLOCK_ENTRIES; i++)
 		{
-			if (first_block.map_table[i] == -1) break;
+			if (first_block.map_table[i] == 0) break;
 			free_map_release(first_block.map_table[i], 1);
 		}
 		free_map_release(inode_disk->indirect_block_sec, 1);
 	}
 
-	if (inode_disk->double_indirect_block_sec != -1)
+	if (inode_disk->double_indirect_block_sec > 0)
 	{
 		bc_read (inode_disk->double_indirect_block_sec, &first_block, 0, sizeof(struct inode_indirect_block), 0);
 		for(i = 0; i < INDIRECT_BLOCK_ENTRIES; i++)
 		{
-			if (first_block.map_table[i] == -1)	break;
+			if (first_block.map_table[i] == 0)	break;
 			bc_read(first_block.map_table[i], &second_block, 0, sizeof(struct inode_indirect_block), 0);
 			for(j = 0; j < INDIRECT_BLOCK_ENTRIES; j++)
 			{
-				if (second_block.map_table[j] == -1)	break;
+				if (second_block.map_table[j] == 0)	break;
 				free_map_release(second_block.map_table[j], 1);
 			}
 			free_map_release(first_block.map_table[i], 1);
 		}
 		free_map_release(inode_disk->double_indirect_block_sec, 1);
 	}
-}
-
-bool inode_is_dir(const struct inode *inode)
-{
-	struct inode_disk inode_disk;
-
-	get_disk_inode(inode, &inode_disk);
-	return inode_disk.is_dir;
 }

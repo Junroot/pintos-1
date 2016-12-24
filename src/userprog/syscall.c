@@ -7,6 +7,8 @@
 #include "threads/vaddr.h"
 #include "devices/shutdown.h"
 #include "filesys/filesys.h"
+#include "filesys/inode.h"
+#include "filesys/directory.h"
 #include "vm/page.h"
 #include "vm/frame.h"
 #include "vm/swap.h"
@@ -274,6 +276,64 @@ void do_munmap(struct mmap_file *mmap_file)
 	}
 }
 
+bool chdir(const char *dir)
+{
+	struct inode *inode;
+	char *prename = palloc_get_page(0);
+	char *filename = palloc_get_page(0);
+
+	strlcpy(prename, dir, PGSIZE);
+	struct dir *newdir = parse_path(prename, filename);
+	if(newdir == NULL)	return false;
+	if(!dir_lookup(newdir, filename, &inode)) return false;
+
+	dir_close(thread_current()->cur_dir);
+	thread_current()->cur_dir = dir_open(inode);
+	dir_close(newdir);
+
+	palloc_free_page(prename);
+	palloc_free_page(filename);
+	return true;
+}
+
+bool mkdir(const char *dir)
+{
+	return filesys_create_dir(dir);
+}
+
+bool readdir(int fd, char *name)
+{
+	struct dir *dir;
+	struct inode *inode;
+	struct file *file = process_get_file(fd);
+	if(!file)	return false;
+	inode = file_get_inode(file);
+	if(!inode_is_dir(inode))	return false;
+	if(!(dir = dir_open(inode)))
+	{
+		dir_close(dir);
+		return false;
+	}
+	return true;
+}
+
+bool isdir(int fd)
+{
+	struct inode *inode;
+	struct file *file = process_get_file(fd);
+
+	if(!file) return false;
+	inode = file_get_inode(file);
+	return inode_is_dir(inode);
+}
+
+int inumber(int fd)
+{
+	struct file *file = process_get_file(fd);
+	if(file == NULL)	return -1;
+	return inode_get_inumber(file_get_inode(file));
+}
+
 void check_valid_buffer (void *buffer, unsigned size, void *esp, bool to_write)
 {
 	unsigned i;
@@ -406,6 +466,29 @@ syscall_handler (struct intr_frame *f UNUSED)
 	case SYS_MUNMAP:
 		get_argument(esp,arg,1);
 		munmap(arg[0]);
+		break;
+	case SYS_CHDIR:
+		get_argument(esp,arg,1);
+		check_valid_string((void *)arg[0], esp);
+		f->eax = chdir((const char *)arg[0]);
+		break;
+	case SYS_MKDIR:
+		get_argument(esp,arg,1);
+		check_valid_string((void*)arg[0],esp);
+		f->eax = mkdir((const char *)arg[0]);
+		break;
+	case SYS_READDIR:
+		get_argument(esp,arg,2);
+		check_valid_string((void *)arg[1],esp);
+		f->eax = readdir((int)arg[0],(char *)arg[1]);
+		break;
+	case SYS_ISDIR:
+		get_argument(esp,arg,1);
+		f->eax = isdir((int)arg[0]);
+		break;
+	case SYS_INUMBER:
+		get_argument(esp,arg,1);
+		f->eax = inumber((int)arg[0]);
 		break;
   }
 }

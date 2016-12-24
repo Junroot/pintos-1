@@ -12,6 +12,7 @@
 #include "filesys/directory.h"
 #include "filesys/file.h"
 #include "filesys/filesys.h"
+#include "filesys/inode.h"
 #include "threads/flags.h"
 #include "threads/init.h"
 #include "threads/interrupt.h"
@@ -233,6 +234,7 @@ process_exit (void)
   palloc_free_page(cur->fdt);
   vm_destroy(&cur->vm);
   file_close(cur->run_file);
+  dir_close(cur->cur_dir);
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
   pd = cur->pagedir;

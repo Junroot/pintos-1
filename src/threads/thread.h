@@ -115,6 +115,7 @@ struct thread
 
 	int nice;
 	int recent_cpu;
+	struct dir *cur_dir;
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory.  */
